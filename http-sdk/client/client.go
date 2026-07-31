@@ -39,7 +39,6 @@ func NewClient(doer Doer, timeout time.Duration) Client {
 func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 	if c.timeout > 0 {
 		var cancel context.CancelFunc
-
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 		defer cancel()
 	}
