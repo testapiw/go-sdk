@@ -1,33 +1,6 @@
 package base
 
-import "time"
-
-type Logger interface {
-	Log(LogEntry)
-}
-
-type LogEntry struct {
-	Endpoint   string
-	RequestID  string
-	Duration   time.Duration
-	StatusCode int
-	Err        error
-}
-
-type Metrics interface {
-	Request(endpoint string)
-	Response(endpoint string)
-	Error(endpoint string)
-	Latency(endpoint string, duration time.Duration)
-}
-
-type NopLogger struct{}
-
-func (NopLogger) Log(LogEntry) {}
-
-type NopMetrics struct{}
-
-func (NopMetrics) Request(string)                  {}
-func (NopMetrics) Response(string)                 {}
-func (NopMetrics) Error(string)                    {}
-func (NopMetrics) Latency(string, time.Duration)   {}
+// The base package intentionally defines no Logger or Metrics interfaces.
+// The transport collects metrics into transport.Result, and the application
+// decides how to log or persist them. Keeping observability out of the SDK
+// core keeps the request path fast and dependency-free.

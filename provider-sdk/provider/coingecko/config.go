@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/testapiw/go-sdk/http-sdk/handlers"
 )
 
 type APIType string
@@ -21,6 +23,11 @@ type Config struct {
 	Timeout time.Duration
 
 	UserAgent string
+
+	// Optional handler configuration. When nil, defaults are used.
+	Retry     *handlers.RetryPolicy
+	RateLimit *handlers.RateLimitConfig
+	Breaker   *handlers.BreakerConfig
 }
 
 func DefaultConfig() Config {

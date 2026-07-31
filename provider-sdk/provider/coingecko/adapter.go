@@ -12,6 +12,7 @@ import (
 	"time"
 
 	httpx "github.com/testapiw/go-sdk/http-sdk/client"
+	"github.com/testapiw/go-sdk/http-sdk/handlers"
 	"github.com/testapiw/go-sdk/http-sdk/transport"
 
 	"github.com/testapiw/go-sdk/provider-sdk/provider/base"
@@ -29,8 +30,6 @@ var _ contract.Provider = (*CoinGeckoAdapter)(nil)
 func New(
 	cfg Config,
 	doer httpx.Doer,
-	logger base.Logger,
-	metrics base.Metrics,
 ) (*CoinGeckoAdapter, error) {
 
 	if err := cfg.Validate(); err != nil {
@@ -59,8 +58,28 @@ func New(
 		)
 	}
 
+	// Register resilience handlers. When config fields are nil, defaults
+	// are used so the provider is protected out of the box.
+	retry := handlers.DefaultRetryPolicy()
+	if cfg.Retry != nil {
+		retry = *cfg.Retry
+	}
+	t.Use(handlers.NewRetry(retry))
+
+	ratelimit := handlers.DefaultRateLimitConfig()
+	if cfg.RateLimit != nil {
+		ratelimit = *cfg.RateLimit
+	}
+	t.Use(handlers.NewRateLimit(ratelimit))
+
+	breaker := handlers.DefaultBreakerConfig("coingecko")
+	if cfg.Breaker != nil {
+		breaker = *cfg.Breaker
+	}
+	t.Use(handlers.NewBreaker(breaker))
+
 	return &CoinGeckoAdapter{
-		base:      base.New(t, logger, metrics),
+		base:      base.New(t),
 		sanitizer: NewSanitizer(),
 		config:    cfg,
 	}, nil
@@ -70,7 +89,7 @@ func (a *CoinGeckoAdapter) Ping(ctx context.Context) error {
 
 	var dto pingDTO
 
-	if err := a.get(ctx, PingEndpoint, nil, &dto); err != nil {
+	if err := a.get(ctx, "Ping", PingEndpoint, nil, &dto); err != nil {
 		return err
 	}
 
@@ -119,7 +138,7 @@ func (a *CoinGeckoAdapter) Prices(
 
 	var dto priceDTO
 
-	if err := a.get(ctx, PriceEndpoint, q, &dto); err != nil {
+	if err := a.get(ctx, "Prices", PriceEndpoint, q, &dto); err != nil {
 		return nil, err
 	}
 
@@ -174,7 +193,7 @@ func (a *CoinGeckoAdapter) Coins(
 
 	var dto []coinDTO
 
-	if err := a.get(ctx, MarketsEndpoint, q, &dto); err != nil {
+	if err := a.get(ctx, "Coins", MarketsEndpoint, q, &dto); err != nil {
 		return nil, err
 	}
 
@@ -261,7 +280,7 @@ func (a *CoinGeckoAdapter) history(
 
 	var dto historyDTO
 
-	if err := a.get(ctx, endpoint, q, &dto); err != nil {
+	if err := a.get(ctx, "History", endpoint, q, &dto); err != nil {
 		return nil, err
 	}
 
@@ -281,6 +300,7 @@ func (a *CoinGeckoAdapter) history(
 
 func (a *CoinGeckoAdapter) get(
 	ctx context.Context,
+	name string,
 	endpoint string,
 	q url.Values,
 	target any,
@@ -308,8 +328,16 @@ func (a *CoinGeckoAdapter) get(
 		headers.Set(header, a.config.APIKey)
 	}
 
-	resp, err := a.base.Do(
+	op := transport.Operation{
+		Provider: "coingecko",
+		Name:     name,
+		Endpoint: endpoint,
+		Method:   stdhttp.MethodGet,
+	}
+
+	result := a.base.Do(
 		ctx,
+		op,
 		httpx.Request{
 			Method: stdhttp.MethodGet,
 			URL: strings.TrimRight(
@@ -320,11 +348,11 @@ func (a *CoinGeckoAdapter) get(
 			Headers: headers,
 		},
 	)
-	if err != nil {
-		return err
+	if result.Error != nil {
+		return result.Error
 	}
 
-	if err := json.Unmarshal(resp.Body, target); err != nil {
+	if err := json.Unmarshal(result.Response.Body, target); err != nil {
 		return contract.NewError(
 			contract.ErrInvalidResponse,
 			"coingecko",

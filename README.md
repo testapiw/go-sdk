@@ -122,7 +122,7 @@ import (
 cfg := coingecko.DefaultConfig()
 cfg.APIKey = "your-api-key"
 
-adapter, err := coingecko.New(cfg, nil, nil, nil)
+adapter, err := coingecko.New(cfg, nil)
 if err != nil {
     log.Fatal(err)
 }

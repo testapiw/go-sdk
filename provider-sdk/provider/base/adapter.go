@@ -7,47 +7,26 @@ import (
 	"github.com/testapiw/go-sdk/http-sdk/transport"
 )
 
+// BaseAdapter wraps a transport and exposes the request lifecycle to
+// providers. It is intentionally free of logging and metrics — the transport
+// collects metrics into the returned Result, and the application decides how
+// to log or persist them.
 type BaseAdapter struct {
 	transport *transport.Transport
-
-	logger  Logger
-	metrics Metrics
 }
 
-func New(
-	transport *transport.Transport,
-	logger Logger,
-	metrics Metrics,
-) *BaseAdapter {
-
-	if logger == nil {
-		logger = NopLogger{}
-	}
-
-	if metrics == nil {
-		metrics = NopMetrics{}
-	}
-
-	return &BaseAdapter{
-		transport: transport,
-		logger:    logger,
-		metrics:   metrics,
-	}
+// New creates a base adapter around the given transport.
+func New(transport *transport.Transport) *BaseAdapter {
+	return &BaseAdapter{transport: transport}
 }
 
+// Do runs the request through the transport state machine and returns the
+// Result, which carries both the response/error and the collected metrics.
 func (a *BaseAdapter) Do(
 	ctx context.Context,
+	op transport.Operation,
 	req http.Request,
-) (*http.Response, error) {
+) *transport.Result {
 
-	a.metrics.Request(req.URL)
-
-	resp, err := a.transport.Do(ctx, req)
-
-	if err != nil {
-		a.metrics.Error(req.URL)
-		return nil, err
-	}
-
-	return resp, nil
+	return a.transport.Do(ctx, op, req)
 }
