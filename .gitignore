@@ -1,0 +1,47 @@
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.test
+*.out
+*.coverprofile
+coverage.out
+
+# Workspace
+go.work.sum
+
+# Build
+bin/
+build/
+dist/
+
+# Cache
+.cache/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Local configuration
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml
+
+# Local Makefile
+Makefile.local
+
+# Temporary
+tmp/
+temp/
