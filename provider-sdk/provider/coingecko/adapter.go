@@ -23,9 +23,21 @@ type CoinGeckoAdapter struct {
 	base      *base.BaseAdapter
 	sanitizer Sanitizer
 	config    Config
+
+	// onResult is invoked after every request with the transport Result.
+	// It is optional and never blocks the request lifecycle.
+	onResult func(*transport.Result)
 }
 
 var _ contract.Provider = (*CoinGeckoAdapter)(nil)
+
+// OnResult registers a callback invoked after every request with the
+// transport Result (response, error, timing, attempts). The callback runs
+// synchronously after the request completes; keep it fast or hand off to a
+// queue. Passing nil disables it.
+func (a *CoinGeckoAdapter) OnResult(fn func(*transport.Result)) {
+	a.onResult = fn
+}
 
 func New(
 	cfg Config,
@@ -348,6 +360,13 @@ func (a *CoinGeckoAdapter) get(
 			Headers: headers,
 		},
 	)
+
+	// Notify the application about the result (logging/metrics). This runs
+	// after the request completes and does not affect the returned data.
+	if a.onResult != nil {
+		a.onResult(result)
+	}
+
 	if result.Error != nil {
 		return result.Error
 	}
