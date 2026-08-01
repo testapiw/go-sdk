@@ -3,9 +3,10 @@ package coingecko
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"time"
 
-	"github.com/testapiw/go-sdk/http-sdk/handlers"
+	"github.com/testapiw/go-sdk/provider-sdk/provider/base"
 )
 
 type APIType string
@@ -20,23 +21,31 @@ type Config struct {
 	APIKey  string
 	APIType APIType
 
-	Timeout time.Duration
-
 	UserAgent string
 
-	// Optional handler configuration. When nil, defaults are used.
-	Retry     *handlers.RetryPolicy
-	RateLimit *handlers.RateLimitConfig
-	Breaker   *handlers.BreakerConfig
+	// Transport-level settings (timeout, resilience handlers).
+	base.Config
 }
 
+// DefaultConfig returns a config with sensible defaults. It reads the
+// COINGECKO_API_KEY environment variable: when set, the provider switches to
+// the pro API; otherwise it uses the public demo API.
 func DefaultConfig() Config {
-	return Config{
+	cfg := Config{
 		BaseURL:   "https://api.coingecko.com/api/v3",
 		APIType:   APIDemo,
-		Timeout:   10 * time.Second,
 		UserAgent: "xentaura-market-data/1.0",
+		Config: base.Config{
+			Timeout: 10 * time.Second,
+		},
 	}
+
+	if key := os.Getenv("COINGECKO_API_KEY"); key != "" {
+		cfg.APIKey = key
+		cfg.APIType = APIPro
+	}
+
+	return cfg
 }
 
 func (c Config) Validate() error {

@@ -6,42 +6,30 @@ import (
 	"time"
 
 	http "github.com/testapiw/go-sdk/http-sdk/client"
+	"github.com/testapiw/go-sdk/http-sdk/contract"
+	"github.com/testapiw/go-sdk/http-sdk/handlers"
 )
-
-// Handler observes an event and returns a Decision that drives the
-// request state machine. Handlers are invoked on every state transition.
-type Handler interface {
-	Handle(context.Context, *Event) Decision
-}
-
-// HandlerFunc adapts a function to the Handler interface.
-type HandlerFunc func(context.Context, *Event) Decision
-
-func (f HandlerFunc) Handle(ctx context.Context, e *Event) Decision {
-	return f(ctx, e)
-}
 
 type Transport struct {
 	client   http.Client
-	handlers []Handler
+	handlers []contract.Handler
 }
 
-func New(client http.Client) (*Transport, error) {
+// New creates a transport around the given client and builds the resilience
+// pipeline (rate limit → breaker → retry) from cfg. The name identifies the
+// breaker (e.g. the provider name). Nil cfg fields fall back to defaults, so
+// the transport is protected out of the box.
+func New(name string, client http.Client, cfg handlers.Config) (*Transport, error) {
 	if client == nil {
 		return nil, fmt.Errorf("http client is required")
 	}
 
-	return &Transport{
-		client: client,
-	}, nil
-}
+	cfg.Name = name
 
-// Use appends a handler to the chain. Handlers run in registration order.
-func (t *Transport) Use(h Handler) *Transport {
-	if h != nil {
-		t.handlers = append(t.handlers, h)
-	}
-	return t
+	return &Transport{
+		client:   client,
+		handlers: handlers.Pipeline(cfg),
+	}, nil
 }
 
 // Do runs the request through a state machine. The request is static; the
@@ -51,17 +39,17 @@ func (t *Transport) Use(h Handler) *Transport {
 // Result but does not log or persist them — that is the application's job.
 func (t *Transport) Do(
 	ctx context.Context,
-	op Operation,
+	op contract.Operation,
 	req http.Request,
 ) *Result {
 
-	event := &Event{
+	event := &contract.Event{
 		Operation: op,
 		Request:   req,
 	}
 
 	started := time.Now()
-	event.Set(ContextStartedAt, started)
+	event.Set(contract.ContextStartedAt, started)
 
 	result := &Result{
 		Operation: op,
@@ -70,11 +58,11 @@ func (t *Transport) Do(
 
 	var waited time.Duration
 
-	state := StateReady
+	state := contract.StateReady
 
-	for state != StateDone {
+	for state != contract.StateDone {
 		switch state {
-		case StateReady:
+		case contract.StateReady:
 			// Run handlers that gate the request (rate limit, breaker).
 			proceed, _ := t.advance(ctx, event, &state)
 			if !proceed {
@@ -91,29 +79,31 @@ func (t *Transport) Do(
 			// Run handlers that observe the outcome (retry, breaker).
 			proceed, action := t.advance(ctx, event, &state)
 			if !proceed {
-				if action == ActionRetry {
+				if action == contract.ActionRetry {
 					result.Retries++
 				}
 				continue
 			}
 
-			state = StateDone
+			state = contract.StateDone
 
-		case StateWait:
-			delay, _ := event.Get(ContextWaitDelay)
+		case contract.StateWait:
+			delay, _ := event.Get(contract.ContextWaitDelay)
 			if d, ok := delay.(time.Duration); ok && d > 0 {
+				timer := time.NewTimer(d)
 				select {
-				case <-time.After(d):
+				case <-timer.C:
 					waited += d
 				case <-ctx.Done():
+					timer.Stop()
 					result.Error = ctx.Err()
 					result.FinishedAt = time.Now()
 					return result
 				}
 			}
-			state = StateReady
+			state = contract.StateReady
 
-		case StateDone:
+		case contract.StateDone:
 			// unreachable
 		}
 	}
@@ -133,32 +123,32 @@ func (t *Transport) Do(
 // the second value reports which action triggered the transition.
 func (t *Transport) advance(
 	ctx context.Context,
-	event *Event,
-	state *State,
-) (bool, Action) {
+	event *contract.Event,
+	state *contract.State,
+) (bool, contract.Action) {
 
 	for _, h := range t.handlers {
 		decision := h.Handle(ctx, event)
 
 		switch decision.Action {
-		case ActionReturn:
+		case contract.ActionReturn:
 			if decision.Error != nil {
 				event.Error = decision.Error
-				*state = StateDone
-				return false, ActionReturn
+				*state = contract.StateDone
+				return false, contract.ActionReturn
 			}
-		case ActionRetry:
+		case contract.ActionRetry:
 			// Reset per-attempt state before the next attempt.
 			event.Response = nil
 			event.Error = nil
-			*state = StateReady
-			return false, ActionRetry
-		case ActionWait:
-			event.Set(ContextWaitDelay, decision.Delay)
-			*state = StateWait
-			return false, ActionWait
+			*state = contract.StateReady
+			return false, contract.ActionRetry
+		case contract.ActionWait:
+			event.Set(contract.ContextWaitDelay, decision.Delay)
+			*state = contract.StateWait
+			return false, contract.ActionWait
 		}
 	}
 
-	return true, ActionReturn
+	return true, contract.ActionReturn
 }

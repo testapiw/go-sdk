@@ -2,14 +2,13 @@ package handlers
 
 import (
 	"context"
-	"math"
-	"math/rand"
+	"math/rand/v2"
 	stdhttp "net/http"
 	"strconv"
 	"time"
 
 	http "github.com/testapiw/go-sdk/http-sdk/client"
-	"github.com/testapiw/go-sdk/http-sdk/transport"
+	"github.com/testapiw/go-sdk/http-sdk/contract"
 )
 
 // RetryPolicy configures the retry behaviour of the transport.
@@ -18,7 +17,7 @@ type RetryPolicy struct {
 	BaseDelay  time.Duration
 	MaxDelay   time.Duration
 	// Retryable returns true when the event should be retried.
-	Retryable func(*transport.Event) bool
+	Retryable func(*contract.Event) bool
 }
 
 func DefaultRetryPolicy() RetryPolicy {
@@ -26,7 +25,7 @@ func DefaultRetryPolicy() RetryPolicy {
 		MaxRetries: 3,
 		BaseDelay:  200 * time.Millisecond,
 		MaxDelay:   2 * time.Second,
-		Retryable: func(e *transport.Event) bool {
+		Retryable: func(e *contract.Event) bool {
 			if e.Error != nil {
 				return true
 			}
@@ -62,27 +61,27 @@ func NewRetry(policy RetryPolicy) *RetryHandler {
 
 func (h *RetryHandler) Handle(
 	ctx context.Context,
-	event *transport.Event,
-) transport.Decision {
+	event *contract.Event,
+) contract.Decision {
 
 	// Retries are only evaluated after the request completes.
 	if event.Response == nil && event.Error == nil {
-		return transport.Decision{Action: transport.ActionReturn}
+		return contract.Decision{Action: contract.ActionReturn}
 	}
 
 	if !h.policy.Retryable(event) {
-		return transport.Decision{Action: transport.ActionReturn}
+		return contract.Decision{Action: contract.ActionReturn}
 	}
 
-	count, _ := event.Get(transport.ContextRetryCount)
+	count, _ := event.Get(contract.ContextRetryCount)
 	retries, _ := count.(int)
 
 	if retries >= h.policy.MaxRetries {
-		return transport.Decision{Action: transport.ActionReturn}
+		return contract.Decision{Action: contract.ActionReturn}
 	}
 
 	retries++
-	event.Set(transport.ContextRetryCount, retries)
+	event.Set(contract.ContextRetryCount, retries)
 
 	// For 429, honour the server's Retry-After header when present.
 	// Otherwise fall back to exponential backoff.
@@ -93,20 +92,24 @@ func (h *RetryHandler) Handle(
 		}
 	}
 
-	return transport.Decision{
-		Action: transport.ActionRetry,
+	return contract.Decision{
+		Action: contract.ActionRetry,
 		Delay:  delay,
 	}
 }
 
 // backoff computes an exponential backoff with full jitter.
 func (h *RetryHandler) backoff(attempt int) time.Duration {
-	exp := math.Pow(2, float64(attempt-1))
-	base := float64(h.policy.BaseDelay) * exp
-	if base > float64(h.policy.MaxDelay) {
-		base = float64(h.policy.MaxDelay)
+	// 2^(attempt-1), capped to avoid overflow on large attempt counts.
+	exp := uint64(1) << min(attempt-1, 62)
+	base := int64(h.policy.BaseDelay) * int64(exp)
+	if base > int64(h.policy.MaxDelay) {
+		base = int64(h.policy.MaxDelay)
 	}
-	return time.Duration(rand.Int63n(int64(base)))
+	if base <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(base))
 }
 
 // retryAfter parses the Retry-After header. It supports both a delay in

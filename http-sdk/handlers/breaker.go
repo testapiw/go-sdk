@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/sony/gobreaker"
-	"github.com/testapiw/go-sdk/http-sdk/transport"
+	"github.com/testapiw/go-sdk/http-sdk/contract"
 )
 
 // BreakerConfig configures the circuit breaker behaviour.
@@ -71,23 +72,23 @@ func NewBreaker(cfg BreakerConfig) *BreakerHandler {
 
 func (h *BreakerHandler) Handle(
 	ctx context.Context,
-	event *transport.Event,
-) transport.Decision {
+	event *contract.Event,
+) contract.Decision {
 
 	// Before the request: reject if the breaker is open.
 	if event.Response == nil && event.Error == nil {
 		if h.breaker.State() == gobreaker.StateOpen {
-			return transport.Decision{
-				Action: transport.ActionReturn,
+			return contract.Decision{
+				Action: contract.ActionReturn,
 				Error:  gobreaker.ErrOpenState,
 			}
 		}
-		return transport.Decision{Action: transport.ActionReturn}
+		return contract.Decision{Action: contract.ActionReturn}
 	}
 
 	// After the request: record the outcome through the breaker.
-	// Execute registers the result; the wrapped function just returns the
-	// already-completed request outcome so no extra HTTP call is made.
+	// The wrapped function performs no HTTP call — it only reports the
+	// already-completed outcome so the breaker can update its state.
 	_, _ = h.breaker.Execute(func() (interface{}, error) {
 		if event.Error != nil {
 			return nil, event.Error
@@ -98,11 +99,8 @@ func (h *BreakerHandler) Handle(
 		return event.Response, nil
 	})
 
-	return transport.Decision{Action: transport.ActionReturn}
+	return contract.Decision{Action: contract.ActionReturn}
 }
 
-var errServerError = &breakerServerError{}
-
-type breakerServerError struct{}
-
-func (*breakerServerError) Error() string { return "server error" }
+// errServerError marks a 5xx response as a breaker failure.
+var errServerError = errors.New("server error")

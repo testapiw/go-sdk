@@ -4,6 +4,7 @@ import (
 	"time"
 
 	http "github.com/testapiw/go-sdk/http-sdk/client"
+	"github.com/testapiw/go-sdk/http-sdk/contract"
 )
 
 // Result is the outcome of a request together with the metrics collected
@@ -18,7 +19,7 @@ type Result struct {
 	Error error
 
 	// Operation identifies the request that produced this result.
-	Operation Operation
+	Operation contract.Operation
 
 	// StartedAt is when the request lifecycle began.
 	StartedAt time.Time

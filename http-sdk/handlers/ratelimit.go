@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"golang.org/x/time/rate"
-	"github.com/testapiw/go-sdk/http-sdk/transport"
+	"github.com/testapiw/go-sdk/http-sdk/contract"
 )
 
 // RateLimitConfig configures the rate limiter.
@@ -45,21 +45,21 @@ func NewRateLimit(cfg RateLimitConfig) *RateLimitHandler {
 
 func (h *RateLimitHandler) Handle(
 	ctx context.Context,
-	event *transport.Event,
-) transport.Decision {
+	event *contract.Event,
+) contract.Decision {
 
 	// Rate limiting only applies before the request is sent.
 	if event.Response != nil || event.Error != nil {
-		return transport.Decision{Action: transport.ActionReturn}
+		return contract.Decision{Action: contract.ActionReturn}
 	}
 
 	// Wait for a token, respecting context cancellation.
 	if err := h.limiter.Wait(ctx); err != nil {
-		return transport.Decision{
-			Action: transport.ActionReturn,
+		return contract.Decision{
+			Action: contract.ActionReturn,
 			Error:  err,
 		}
 	}
 
-	return transport.Decision{Action: transport.ActionReturn}
+	return contract.Decision{Action: contract.ActionReturn}
 }

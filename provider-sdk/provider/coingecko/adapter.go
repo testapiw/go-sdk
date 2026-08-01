@@ -2,7 +2,6 @@ package coingecko
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	stdhttp "net/http"
@@ -12,7 +11,7 @@ import (
 	"time"
 
 	httpx "github.com/testapiw/go-sdk/http-sdk/client"
-	"github.com/testapiw/go-sdk/http-sdk/handlers"
+	httpcontract "github.com/testapiw/go-sdk/http-sdk/contract"
 	"github.com/testapiw/go-sdk/http-sdk/transport"
 
 	"github.com/testapiw/go-sdk/provider-sdk/provider/base"
@@ -23,10 +22,6 @@ type CoinGeckoAdapter struct {
 	base      *base.BaseAdapter
 	sanitizer Sanitizer
 	config    Config
-
-	// onResult is invoked after every request with the transport Result.
-	// It is optional and never blocks the request lifecycle.
-	onResult func(*transport.Result)
 }
 
 var _ contract.Provider = (*CoinGeckoAdapter)(nil)
@@ -36,62 +31,27 @@ var _ contract.Provider = (*CoinGeckoAdapter)(nil)
 // synchronously after the request completes; keep it fast or hand off to a
 // queue. Passing nil disables it.
 func (a *CoinGeckoAdapter) OnResult(fn func(*transport.Result)) {
-	a.onResult = fn
+	a.base.OnResult(fn)
 }
 
+// New builds a CoinGecko adapter. The name identifies the provider in the
+// transport (breaker, metrics); it is passed in by the factory rather than
+// hardcoded so the same constructor can serve any registration name. The
+// base adapter handles config validation, the HTTP client and the resilience
+// pipeline; this constructor only wires up the provider-specific pieces.
 func New(
+	name string,
 	cfg Config,
 	doer httpx.Doer,
 ) (*CoinGeckoAdapter, error) {
 
-	if err := cfg.Validate(); err != nil {
-		return nil, contract.NewError(
-			contract.ErrConfiguration,
-			"coingecko",
-			"new",
-			"",
-			err,
-		)
-	}
-
-	client := httpx.NewClient(
-		doer,
-		cfg.Timeout,
-	)
-
-	t, err := transport.New(client)
+	b, err := base.New(name, cfg.Config, doer, cfg.Validate)
 	if err != nil {
-		return nil, contract.NewError(
-			contract.ErrConfiguration,
-			"coingecko",
-			"new",
-			"",
-			err,
-		)
+		return nil, err
 	}
-
-	// Register resilience handlers. When config fields are nil, defaults
-	// are used so the provider is protected out of the box.
-	retry := handlers.DefaultRetryPolicy()
-	if cfg.Retry != nil {
-		retry = *cfg.Retry
-	}
-	t.Use(handlers.NewRetry(retry))
-
-	ratelimit := handlers.DefaultRateLimitConfig()
-	if cfg.RateLimit != nil {
-		ratelimit = *cfg.RateLimit
-	}
-	t.Use(handlers.NewRateLimit(ratelimit))
-
-	breaker := handlers.DefaultBreakerConfig("coingecko")
-	if cfg.Breaker != nil {
-		breaker = *cfg.Breaker
-	}
-	t.Use(handlers.NewBreaker(breaker))
 
 	return &CoinGeckoAdapter{
-		base:      base.New(t),
+		base:      b,
 		sanitizer: NewSanitizer(),
 		config:    cfg,
 	}, nil
@@ -340,14 +300,14 @@ func (a *CoinGeckoAdapter) get(
 		headers.Set(header, a.config.APIKey)
 	}
 
-	op := transport.Operation{
+	op := httpcontract.Operation{
 		Provider: "coingecko",
 		Name:     name,
 		Endpoint: endpoint,
 		Method:   stdhttp.MethodGet,
 	}
 
-	result := a.base.Do(
+	return a.base.GetJSON(
 		ctx,
 		op,
 		httpx.Request{
@@ -359,29 +319,8 @@ func (a *CoinGeckoAdapter) get(
 			Query:   q,
 			Headers: headers,
 		},
+		target,
 	)
-
-	// Notify the application about the result (logging/metrics). This runs
-	// after the request completes and does not affect the returned data.
-	if a.onResult != nil {
-		a.onResult(result)
-	}
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if err := json.Unmarshal(result.Response.Body, target); err != nil {
-		return contract.NewError(
-			contract.ErrInvalidResponse,
-			"coingecko",
-			endpoint,
-			requestID,
-			err,
-		)
-	}
-
-	return nil
 }
 
 type requestIDKey struct{}

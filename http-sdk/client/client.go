@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	stdhttp "net/http"
@@ -54,15 +55,17 @@ func (c *client) Do(ctx context.Context, req Request) (*Response, error) {
 	}
 	defer httpResponse.Body.Close()
 
+	// Cap the response body at maxBody. MaxBytesReader returns a
+	// *MaxBytesError when the limit is exceeded.
 	body, err := io.ReadAll(
-		io.LimitReader(httpResponse.Body, c.maxBody+1),
+		stdhttp.MaxBytesReader(nil, httpResponse.Body, c.maxBody),
 	)
 	if err != nil {
+		var maxErr *stdhttp.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return nil, fmt.Errorf("response body exceeds %d bytes", c.maxBody)
+		}
 		return nil, err
-	}
-
-	if int64(len(body)) > c.maxBody {
-		return nil, fmt.Errorf("response body exceeds %d bytes", c.maxBody)
 	}
 
 	return &Response{

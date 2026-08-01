@@ -122,12 +122,26 @@ import (
 cfg := coingecko.DefaultConfig()
 cfg.APIKey = "your-api-key"
 
-adapter, err := coingecko.New(cfg, nil)
+adapter, err := coingecko.New("coingecko", cfg, nil)
 if err != nil {
     log.Fatal(err)
 }
 
 prices, err := adapter.Prices(ctx, []string{"bitcoin", "ethereum"})
+```
+
+Or build the provider through the factory, which selects it by name and
+reads credentials from the environment:
+
+```go
+import (
+    "github.com/testapiw/go-sdk/provider-sdk/provider/factory"
+)
+
+adapter, err := factory.New().Create("coingecko")
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## Dependencies
