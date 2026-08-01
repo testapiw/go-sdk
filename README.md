@@ -1,48 +1,16 @@
 # Go SDK
 
-This directory contains reusable SDK modules.
+Reusable SDK modules for building HTTP clients and market-data provider adapters.
 
-## Available SDKs
+## Modules
 
-### http-sdk
-HTTP client infrastructure with retry, rate limiting, and circuit breaker support.
+- **http-sdk** — `github.com/testapiw/go-sdk/http-sdk`
+  HTTP client with retry, rate limiting, and circuit breaker.
 
-**Location:** `github.com/testapiw/go-sdk/http-sdk`
-
-**Features:**
-- Circuit breaker pattern (using gobreaker)
-- Rate limiting with configurable requests per second
-- Retry policies with exponential backoff and jitter
-- HTTP client abstraction with middleware support
-
-**Packages:**
-- `breaker` - Circuit breaker implementation
-- `client` - HTTP client with request/response handling
-- `ratelimit` - Rate limiting functionality
-- `retry` - Retry logic with configurable policies
-- `transport` - HTTP middleware
-
-### provider-sdk
-Market data provider adapters and contracts.
-
-**Location:** `github.com/testapiw/go-sdk/provider-sdk`
-
-**Features:**
-- Provider interface abstraction
-- CoinGecko adapter implementation
-- Base adapter with common functionality
-- Data sanitization and validation
-- Built-in error handling and classification
-
-**Packages:**
-- `provider/contract` - Provider interfaces and models
-- `provider/base` - Base adapter implementation
-- `provider/coingecko` - CoinGecko specific implementation
-- `provider/factory` - Provider factory
+- **provider-sdk** — `github.com/testapiw/go-sdk/provider-sdk`
+  Provider adapters and contracts (CoinGecko, factory).
 
 ## Installation
-
-For production use:
 
 ```bash
 go get github.com/testapiw/go-sdk/http-sdk@latest
@@ -52,72 +20,34 @@ go get github.com/testapiw/go-sdk/provider-sdk@latest
 For local development, use the workspace and replace directives:
 
 ```go
-// In your project's go.mod
 replace (
     github.com/testapiw/go-sdk/http-sdk => ../SDK/http-sdk
     github.com/testapiw/go-sdk/provider-sdk => ../SDK/provider-sdk
 )
 ```
 
-## Development
+## Usage
 
-### Workspace Setup
-The SDK uses Go workspaces for local development:
+### Build a provider through the factory
 
-```bash
-cd SDK
-go work sync
-```
-
-### Running Tests
-
-Test all modules:
-```bash
-cd SDK
-go test ./...
-```
-
-Test specific module:
-```bash
-cd SDK/http-sdk
-go test ./...
-```
-
-### Publishing to GitHub
-
-1. Commit and push your changes
-2. Tag the release for each module:
-   ```bash
-   git tag http-sdk/v0.1.0
-   git tag provider-sdk/v0.1.0
-   git push origin --tags
-   ```
-
-3. Users can then install specific versions:
-   ```bash
-   go get github.com/testapiw/go-sdk/http-sdk@v0.1.0
-   ```
-
-## Usage Examples
-
-### Using http-sdk
+The factory selects a provider by name and reads credentials from the
+environment:
 
 ```go
-import (
-    "github.com/testapiw/go-sdk/http-sdk/client"
-    "github.com/testapiw/go-sdk/http-sdk/retry"
-)
+import "github.com/testapiw/go-sdk/provider-sdk/provider/factory"
 
-httpClient := client.NewClient(nil, 10*time.Second)
-retryExecutor := retry.New(retry.DefaultPolicy())
+adapter, err := factory.New().Create("coingecko")
+if err != nil {
+    log.Fatal(err)
+}
+
+prices, err := adapter.Prices(ctx, []string{"bitcoin", "ethereum"})
 ```
 
-### Using provider-sdk
+### Build a provider directly
 
 ```go
-import (
-    "github.com/testapiw/go-sdk/provider-sdk/provider/coingecko"
-)
+import "github.com/testapiw/go-sdk/provider-sdk/provider/coingecko"
 
 cfg := coingecko.DefaultConfig()
 cfg.APIKey = "your-api-key"
@@ -130,26 +60,28 @@ if err != nil {
 prices, err := adapter.Prices(ctx, []string{"bitcoin", "ethereum"})
 ```
 
-Or build the provider through the factory, which selects it by name and
-reads credentials from the environment:
+### Use the HTTP client directly
 
 ```go
-import (
-    "github.com/testapiw/go-sdk/provider-sdk/provider/factory"
-)
+import "github.com/testapiw/go-sdk/http-sdk/client"
 
-adapter, err := factory.New().Create("coingecko")
-if err != nil {
-    log.Fatal(err)
-}
+httpClient := client.NewClient(nil, 10*time.Second)
 ```
 
-## Dependencies
+## Development
 
-### http-sdk
-- `github.com/sony/gobreaker` - Circuit breaker implementation
-- `golang.org/x/time` - Rate limiting
+```bash
+cd SDK
+go work sync
+go test ./...
+```
 
-### provider-sdk
-- `github.com/testapiw/go-sdk/http-sdk` - HTTP infrastructure
-- `github.com/sony/gobreaker` - Circuit breaker states
+## Publishing
+
+Tag each module and push:
+
+```bash
+git tag http-sdk/v0.1.0
+git tag provider-sdk/v0.1.0
+git push origin --tags
+```
