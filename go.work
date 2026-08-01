@@ -3,4 +3,5 @@ go 1.22
 use (
 	./http-sdk
 	./provider-sdk
+	./storage-sdk
 )
