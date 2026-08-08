@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 )
 
 // Handler processes a single request payload received from the WP service.
