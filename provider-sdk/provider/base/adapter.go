@@ -3,6 +3,7 @@ package base
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	httpx "github.com/testapiw/go-sdk/http-sdk/client"
 	httpcontract "github.com/testapiw/go-sdk/http-sdk/contract"
@@ -105,6 +106,18 @@ func (a *BaseAdapter) GetJSON(
 		return result.Error
 	}
 
+	// Перевіряємо HTTP статус. Якщо сервер повернув помилку (4xx/5xx),
+	// не намагаємось розпарсити тіло як ціни — повертаємо зрозумілу помилку.
+	if result.Response != nil && !result.Response.Success() {
+		return contract.NewError(
+			contract.ErrInvalidResponse,
+			op.Provider,
+			op.Endpoint,
+			op.Name,
+			fmt.Errorf("http status %d: %s", result.Response.StatusCode, truncateBody(result.Response.Body)),
+		)
+	}
+
 	if err := json.Unmarshal(result.Response.Body, target); err != nil {
 		return contract.NewError(
 			contract.ErrInvalidResponse,
@@ -116,4 +129,12 @@ func (a *BaseAdapter) GetJSON(
 	}
 
 	return nil
+}
+
+// truncateBody обрізає тіло відповіді до 200 символів для логування.
+func truncateBody(b []byte) string {
+	if len(b) > 200 {
+		return string(b[:200]) + "..."
+	}
+	return string(b)
 }

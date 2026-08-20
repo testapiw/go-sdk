@@ -66,18 +66,41 @@ func (s sanitizer) SanitizeCoins(in []coinDTO) ([]contract.Coin, error) {
 func (s sanitizer) SanitizePrice(in priceDTO) (map[string]contract.Price, error) {
 	out := make(map[string]contract.Price, len(in))
 	for id, v := range in {
-		if !validID(id) || v.USD == nil || !finite(*v.USD) {
+		if !validID(id) || v.USD == nil {
 			return nil, fmt.Errorf("%w: invalid price", contract.ErrInvalidResponse)
 		}
-		p := contract.Price{Value: *v.USD, Currency: "usd"}
+
+		// Точное строковое представление из JSON (json.Number сохраняет
+		// исходный текст числа без потери точности).
+		valueStr := v.USD.String()
+		value, err := v.USD.Float64()
+		if err != nil || !finite(value) {
+			return nil, fmt.Errorf("%w: invalid price", contract.ErrInvalidResponse)
+		}
+
+		p := contract.Price{
+			Value:    value,
+			ValueStr: valueStr,
+			Currency: "usd",
+		}
+
 		if v.MarketCap != nil {
-			p.MarketCap = *v.MarketCap
+			p.MarketCapStr = v.MarketCap.String()
+			if mc, err := v.MarketCap.Float64(); err == nil {
+				p.MarketCap = mc
+			}
 		}
 		if v.Volume != nil {
-			p.Volume24h = *v.Volume
+			p.Volume24hStr = v.Volume.String()
+			if vol, err := v.Volume.Float64(); err == nil {
+				p.Volume24h = vol
+			}
 		}
 		if v.Change != nil {
-			p.Change24h = *v.Change
+			p.Change24hStr = v.Change.String()
+			if ch, err := v.Change.Float64(); err == nil {
+				p.Change24h = ch
+			}
 		}
 		if v.LastUpdated != nil {
 			if *v.LastUpdated < 0 {

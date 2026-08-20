@@ -11,9 +11,12 @@ type Coin struct {
 }
 
 type Price struct {
+	// Числовые значения (для расчётов).
 	Value, MarketCap, Volume24h, Change24h float64
-	Currency                               string
-	LastUpdated                            time.Time
+	// Строковые значения (точное представление из JSON, для хранения).
+	ValueStr, MarketCapStr, Volume24hStr, Change24hStr string
+	Currency                                           string
+	LastUpdated                                        time.Time
 }
 
 type HistoryPoint struct {

@@ -53,10 +53,14 @@ func RegisterProvider[T any, P contract.Provider](
 	f *Factory,
 	name string,
 	new func(name string, cfg T, doer httpx.Doer) (P, error),
-	defaults func() T,
+	defaults func() (T, error),
 ) {
 	f.Register(name, func(name string, cfg Config) (contract.Provider, error) {
-		return new(name, defaults(), cfg.Doer)
+		d, err := defaults()
+		if err != nil {
+			return nil, err
+		}
+		return new(name, d, cfg.Doer)
 	})
 }
 

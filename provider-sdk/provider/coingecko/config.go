@@ -28,11 +28,14 @@ type Config struct {
 }
 
 // DefaultConfig returns a config with sensible defaults. It reads the
-// COINGECKO_API_KEY environment variable: when set, the provider switches to
-// the pro API; otherwise it uses the public demo API.
-func DefaultConfig() Config {
+// COINGECKO_API_MODE environment variable (demo | pro) to select the API
+// endpoint and type. When mode is "pro", the COINGECKO_API_KEY environment
+// variable is required and applied.
+
+// .env COINGECKO_API_MODE  demo | pro
+func DefaultConfig() (Config, error) {
 	cfg := Config{
-		BaseURL:   "https://api.coingecko.com/api/v3",
+		BaseURL:   "https://api.coingecko.com/api/v3", // demo
 		APIType:   APIDemo,
 		UserAgent: "xentaura-market-data/1.0",
 		Config: base.Config{
@@ -40,12 +43,21 @@ func DefaultConfig() Config {
 		},
 	}
 
-	if key := os.Getenv("COINGECKO_API_KEY"); key != "" {
-		cfg.APIKey = key
+	switch os.Getenv("COINGECKO_API_MODE") {
+	case string(APIPro):
+		key := os.Getenv("COINGECKO_API_KEY")
+		if key == "" {
+			return Config{}, fmt.Errorf("COINGECKO_API_MODE=pro requires COINGECKO_API_KEY to be set")
+		}
+		cfg.BaseURL = "https://pro-api.coingecko.com/api/v3"
 		cfg.APIType = APIPro
+		cfg.APIKey = key
+	default: // "demo" or unset
+		cfg.BaseURL = "https://api.coingecko.com/api/v3"
+		cfg.APIType = APIDemo
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 func (c Config) Validate() error {
