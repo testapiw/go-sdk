@@ -3,6 +3,7 @@ go 1.22
 use (
 	./gateway-sdk
 	./http-sdk
+	./logger-sdk
 	./provider-sdk
 	./storage-sdk
 )
