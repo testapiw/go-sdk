@@ -1,6 +1,3 @@
-// Package contract defines the shared types between the transport and its
-// handlers. It lives in its own package so that transport and handlers can
-// depend on each other without an import cycle.
 package contract
 
 import (
