@@ -174,6 +174,16 @@ func (l *Logger) notify(msg string, data ...any) {
 	l.telegram.notify(text)
 }
 
+// SetAlertObserver устанавливает наблюдателя доставки алертов (метрики
+// Фазы 3). Вызывается приложением после New; сигнатуры существующих
+// функций не меняются. Передача nil отключает наблюдение.
+func (l *Logger) SetAlertObserver(o AlertObserver) {
+	if l == nil || l.telegram == nil {
+		return
+	}
+	l.telegram.SetAlertObserver(o)
+}
+
 // Close закрывает все писатели.
 func (l *Logger) Close() error {
 	l.mu.Lock()

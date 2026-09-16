@@ -14,11 +14,6 @@ type Config struct {
 	Retry     *RetryPolicy
 	RateLimit *RateLimitConfig
 	Breaker   *BreakerConfig
-
-	// Telemetry — an optional HTTP request metrics observer. If set,
-	// a telemetry handler is added to the pipeline (last), and each request
-	// sends metrics considering retries and waits. nil means telemetry is off.
-	Telemetry TelemetryObserver
 }
 
 // Pipeline builds the resilience handlers in a fixed, unambiguous order:
@@ -26,9 +21,9 @@ type Config struct {
 // handler so it records a failure before the retry handler decides to
 // retry. Nil config fields fall back to defaults.
 //
-// If cfg.Telemetry is set, the telemetry handler is added LAST:
-// only then does it see the terminal state of the request (after all
-// retries) and can measure the full duration including attempts.
+// Metrics are intentionally NOT collected here: the transport returns a
+// Result carrying timing/attempts/retries, and the application records
+// metrics at the point of capture (see transport.Result).
 func Pipeline(cfg Config) []contract.Handler {
 	retry := DefaultRetryPolicy()
 	if cfg.Retry != nil {
@@ -45,16 +40,9 @@ func Pipeline(cfg Config) []contract.Handler {
 		breaker = *cfg.Breaker
 	}
 
-	handlers := []contract.Handler{
+	return []contract.Handler{
 		NewRateLimit(ratelimit),
 		NewBreaker(breaker),
 		NewRetry(retry),
 	}
-
-	// Telemetry — strictly last, to see the final result after retries.
-	if cfg.Telemetry != nil {
-		handlers = append(handlers, NewTelemetry(cfg.Telemetry))
-	}
-
-	return handlers
 }

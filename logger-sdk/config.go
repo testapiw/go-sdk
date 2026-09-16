@@ -122,6 +122,8 @@ type TelegramConfig struct {
 //	CLICKHOUSE_USER    — пользователь (default analytics)
 //	CLICKHOUSE_PASSWORD— пароль (default analytics_ch)
 //	LOG_DB_TABLE       — таблица логов (default app_logs)
+//	ENV_PREFIX         — префикс окружения (например, "test"); если задан,
+//	                     таблица логов получает префикс: test_app_logs
 //	LOG_TG_ENABLED     — уведомления в Telegram: true|false (default false)
 //	LOG_TG_BOT_TOKEN   — токен бота
 //	LOG_TG_CHAT_IDS    — получатели (ID чатов/каналов), через запятую
@@ -138,7 +140,7 @@ func ConfigFromEnv() Config {
 			Database: envOr("CLICKHOUSE_DB", "analytics"),
 			Username: envOr("CLICKHOUSE_USER", "analytics"),
 			Password: envOr("CLICKHOUSE_PASSWORD", "analytics_ch"),
-			Table:    envOr("LOG_DB_TABLE", "app_logs"),
+			Table:    envTable("LOG_DB_TABLE", "app_logs"),
 		},
 		Telegram: TelegramConfig{
 			Enabled:     envBool("LOG_TG_ENABLED", false),
@@ -155,6 +157,25 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envTable читает имя таблицы из переменной окружения name (или fallback)
+// и применяет префикс окружения ENV_PREFIX, если он задан.
+//
+// Это изолирует тестовые логи от боевых: при ENV_PREFIX=test таблица
+// app_logs превращается в test_app_logs, поэтому тестовые сервисы не
+// пишут в боевую таблицу логов.
+//
+// Примеры:
+//
+//	ENV_PREFIX=""     → app_logs
+//	ENV_PREFIX="test" → test_app_logs
+func envTable(name, fallback string) string {
+	table := envOr(name, fallback)
+	if p := strings.TrimSpace(os.Getenv("ENV_PREFIX")); p != "" {
+		return p + "_" + table
+	}
+	return table
 }
 
 // envBool читает булеву переменную окружения.

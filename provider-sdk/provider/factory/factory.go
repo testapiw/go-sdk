@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	httpx "github.com/testapiw/go-sdk/http-sdk/client"
-	"github.com/testapiw/go-sdk/http-sdk/handlers"
 
 	"github.com/testapiw/go-sdk/provider-sdk/provider/coingecko"
 	"github.com/testapiw/go-sdk/provider-sdk/provider/contract"
@@ -23,9 +22,6 @@ type Config struct {
 
 	// Doer is the underlying HTTP client. Nil uses the default client.
 	Doer httpx.Doer
-
-	// TelemetryObserver is an optional observer for HTTP request telemetry.
-	TelemetryObserver handlers.TelemetryObserver
 }
 
 // Constructor builds a provider adapter. The name is passed in so a
