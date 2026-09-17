@@ -74,6 +74,33 @@ import "github.com/testapiw/go-sdk/http-sdk/client"
 httpClient := client.NewClient(nil, 10*time.Second)
 ```
 
+### Resilience pipeline and retry semantics
+
+`transport.New` builds the pipeline `rate limit → breaker → retry`. Ownership
+is deliberately split so that no module owns someone else's subject matter:
+
+| Module | Responsibility |
+|---|---|
+| `transport` | drives the state machine, performs the HTTP call and records only what it alone can see: the boundaries of the call (`contract.ContextAttemptStartedAt/FinishedAt`) |
+| `handlers.RetryHandler` | owns retries: attempt number, retry decision, the pause (exponential backoff with equal jitter, or `Retry-After` on 429) and the per-request attempt journal |
+| `contract` | shared vocabulary: `Attempt`, state keys, `Decision` |
+| application | metrics/events/logging — the SDK never writes telemetry itself |
+
+The attempt journal is available both on the event (`handlers.Attempts(event)`)
+and on the result (`transport.Result.AttemptLog`, read-only), and the retry
+pause is applied by the transport through the `StateWait` transition:
+
+```go
+result := adapter.Do(ctx, op, req)
+fmt.Println(result.Attempts, result.Retries, result.Waited) // 3 2 1.4s
+
+for _, attempt := range result.AttemptLog {
+    fmt.Printf("#%d status=%d retry=%v delay=%v took=%v\n",
+        attempt.Number, attempt.StatusCode, attempt.Retry,
+        attempt.RetryDelay, attempt.Duration())
+}
+```
+
 ### Use the logger
 
 ```go

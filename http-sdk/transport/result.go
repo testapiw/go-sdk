@@ -27,14 +27,20 @@ type Result struct {
 	// FinishedAt is when the request lifecycle ended.
 	FinishedAt time.Time
 
-	// Attempts is the number of HTTP calls made (including retries).
+	// Attempts is the number of HTTP calls made (including retries). It is
+	// derived from the attempt ledger kept by the retry handler (AttemptLog).
 	Attempts int
 
-	// Retries is the number of retries performed.
+	// Retries is the number of retries performed, derived from AttemptLog.
 	Retries int
 
-	// Waited is the total time spent waiting (backoff, rate limit).
+	// Waited is the total time spent waiting (retry backoff, rate limit).
 	Waited time.Duration
+
+	// AttemptLog содержит факты по каждой попытке (номер, границы, статус,
+	// ошибка, признак повтора и запрошенная пауза). Журнал ведёт обработчик
+	// ретраев; здесь он доступен только для чтения.
+	AttemptLog []contract.Attempt
 }
 
 // Duration returns the total time the request lifecycle took.

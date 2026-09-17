@@ -15,6 +15,41 @@ type Operation struct {
 	Method   string
 }
 
+// Attempt описывает одну попытку HTTP-запроса.
+//
+// Журнал попыток ведёт обработчик ретраев (handlers.RetryHandler): повторы —
+// его предметная область, поэтому номер попытки, признак повтора и пауза
+// проставляются там. Транспорт сообщает только измеренные факты вызова
+// (границы, статус, ошибка) через состояние события.
+type Attempt struct {
+	// Number — номер попытки, начиная с 1.
+	Number int
+
+	// StartedAt / FinishedAt — границы попытки.
+	StartedAt  time.Time
+	FinishedAt time.Time
+
+	// StatusCode — HTTP-статус ответа (0, если ответа не было).
+	StatusCode int
+
+	// Error — ошибка транспорта (nil, если ответ получен).
+	Error error
+
+	// Retry — true, если после этой попытки выполнена ещё одна.
+	Retry bool
+
+	// RetryDelay — пауза перед следующей попыткой (backoff/Retry-After).
+	RetryDelay time.Duration
+}
+
+// Duration возвращает длительность попытки.
+func (a Attempt) Duration() time.Duration {
+	if a.StartedAt.IsZero() || a.FinishedAt.IsZero() {
+		return 0
+	}
+	return a.FinishedAt.Sub(a.StartedAt)
+}
+
 // Event carries the request lifecycle state observed by handlers.
 type Event struct {
 	Operation Operation
@@ -71,7 +106,9 @@ const (
 type Decision struct {
 	Action Action
 
-	// Delay is used with ActionWait.
+	// Delay is the pause before the next attempt. It is used with
+	// ActionWait and with ActionRetry (the retry handler returns the
+	// backoff / Retry-After pause this way, and the transport applies it).
 	Delay time.Duration
 
 	// Error short-circuits the machine to StateDone when set with ActionReturn.
@@ -96,4 +133,13 @@ const (
 	ContextStartedAt  = "started_at"
 	ContextRetryCount = "retry_count"
 	ContextWaitDelay  = "wait_delay"
+
+	// ContextAttempts — журнал попыток ([]Attempt). Его ведёт обработчик
+	// ретраев: только он знает, была ли попытка повторена и с какой паузой.
+	ContextAttempts = "attempts"
+
+	// ContextAttemptStartedAt / ContextAttemptFinishedAt — границы текущей
+	// попытки. Их проставляет транспорт — он единственный, кто видит вызов.
+	ContextAttemptStartedAt  = "attempt_started_at"
+	ContextAttemptFinishedAt = "attempt_finished_at"
 )

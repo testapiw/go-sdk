@@ -64,11 +64,23 @@ func (h *RetryHandler) Handle(
 	event *contract.Event,
 ) contract.Decision {
 
-	// Retries are only evaluated after the request completes.
+	// До вызова запроса повторов не бывает: попытка ещё не состоялась.
 	if event.Response == nil && event.Error == nil {
 		return contract.Decision{Action: contract.ActionReturn}
 	}
 
+	decision := h.decide(event)
+
+	// Журнал попыток ведёт обработчик ретраев: только здесь известно,
+	// была ли попытка повторена и с какой паузой.
+	recordAttempt(event, decision)
+
+	return decision
+}
+
+// decide вычисляет переход по итогу попытки: повтор с паузой (backoff или
+// Retry-After) либо завершение запроса.
+func (h *RetryHandler) decide(event *contract.Event) contract.Decision {
 	if !h.policy.Retryable(event) {
 		return contract.Decision{Action: contract.ActionReturn}
 	}
@@ -92,13 +104,89 @@ func (h *RetryHandler) Handle(
 		}
 	}
 
+	// Пауза перед следующей попыткой передаётся вместе с ActionRetry:
+	// транспорт применяет её через переход StateWait.
 	return contract.Decision{
 		Action: contract.ActionRetry,
 		Delay:  delay,
 	}
 }
 
-// backoff computes an exponential backoff with full jitter.
+// recordAttempt добавляет в журнал запроса факт завершённой попытки.
+// Границы вызова и его исход приходят от транспорта (Event.State,
+// Event.Response/Error), решение о повторе и пауза — от обработчика ретраев.
+func recordAttempt(event *contract.Event, decision contract.Decision) {
+	ledger := Attempts(event)
+
+	ledger = append(ledger, contract.Attempt{
+		Number:     len(ledger) + 1,
+		StartedAt:  eventTime(event, contract.ContextAttemptStartedAt),
+		FinishedAt: eventTime(event, contract.ContextAttemptFinishedAt),
+		StatusCode: statusOf(event.Response),
+		Error:      event.Error,
+		Retry:      decision.Action == contract.ActionRetry,
+		RetryDelay: decision.Delay,
+	})
+
+	event.Set(contract.ContextAttempts, ledger)
+}
+
+// Attempts возвращает журнал попыток запроса. Журнал ведёт обработчик
+// ретраев; читающая сторона не должна его изменять.
+func Attempts(event *contract.Event) []contract.Attempt {
+	v, ok := event.Get(contract.ContextAttempts)
+	if !ok {
+		return nil
+	}
+
+	ledger, ok := v.([]contract.Attempt)
+	if !ok {
+		return nil
+	}
+
+	return ledger
+}
+
+// Retries возвращает число выполненных повторов по журналу попыток.
+func Retries(event *contract.Event) int {
+	retries := 0
+
+	for _, attempt := range Attempts(event) {
+		if attempt.Retry {
+			retries++
+		}
+	}
+
+	return retries
+}
+
+// statusOf возвращает HTTP-статус ответа (0, если ответа не было).
+func statusOf(resp *http.Response) int {
+	if resp == nil {
+		return 0
+	}
+
+	return resp.StatusCode
+}
+
+// eventTime читает момент времени из состояния события.
+func eventTime(event *contract.Event, key string) time.Time {
+	v, ok := event.Get(key)
+	if !ok {
+		return time.Time{}
+	}
+
+	t, ok := v.(time.Time)
+	if !ok {
+		return time.Time{}
+	}
+
+	return t
+}
+
+// backoff computes an exponential backoff with equal jitter: the pause lies in
+// [base/2, base), so a retry never fires immediately (full jitter could return
+// zero and effectively cancel the pause).
 func (h *RetryHandler) backoff(attempt int) time.Duration {
 	// 2^(attempt-1), capped to avoid overflow on large attempt counts.
 	exp := uint64(1) << min(attempt-1, 62)
@@ -109,7 +197,13 @@ func (h *RetryHandler) backoff(attempt int) time.Duration {
 	if base <= 0 {
 		return 0
 	}
-	return time.Duration(rand.Int64N(base))
+
+	half := base / 2
+	if half <= 0 {
+		return time.Duration(base)
+	}
+
+	return time.Duration(half + rand.Int64N(base-half))
 }
 
 // retryAfter parses the Retry-After header. It supports both a delay in

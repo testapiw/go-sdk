@@ -69,19 +69,21 @@ func (t *Transport) Do(
 				continue
 			}
 
-			// Perform the HTTP call.
+			// Границы вызова — единственное, что видит только транспорт.
+			// Номер попытки, решение о повторе и паузу фиксирует
+			// обработчик ретраев (handlers.RetryHandler).
+			attemptStarted := time.Now()
+			event.Set(contract.ContextAttemptStartedAt, attemptStarted)
+
 			resp, err := t.client.Do(ctx, event.Request)
+
+			event.Set(contract.ContextAttemptFinishedAt, time.Now())
 
 			event.Response = resp
 			event.Error = err
-			result.Attempts++
 
 			// Run handlers that observe the outcome (retry, breaker).
-			proceed, action := t.advance(ctx, event, &state)
-			if !proceed {
-				if action == contract.ActionRetry {
-					result.Retries++
-				}
+			if proceed, _ = t.advance(ctx, event, &state); !proceed {
 				continue
 			}
 
@@ -97,7 +99,9 @@ func (t *Transport) Do(
 				case <-ctx.Done():
 					timer.Stop()
 					result.Error = ctx.Err()
+					result.Waited = waited
 					result.FinishedAt = time.Now()
+					syncAttempts(event, result)
 					return result
 				}
 			}
@@ -108,12 +112,25 @@ func (t *Transport) Do(
 		}
 	}
 
+	// Итоговые счётчики выводим из журнала попыток: владелец журнала —
+	// обработчик ретраев, поэтому количество вызовов и повторов не
+	// дублируется в ядре транспорта.
+	syncAttempts(event, result)
+
 	result.FinishedAt = time.Now()
 	result.Waited = waited
 	result.Response = event.Response
 	result.Error = event.Error
 
 	return result
+}
+
+// syncAttempts переносит журнал попыток (его ведёт обработчик ретраев) из
+// состояния запроса в результат и выводит из него агрегаты.
+func syncAttempts(event *contract.Event, result *Result) {
+	result.AttemptLog = handlers.Attempts(event)
+	result.Attempts = len(result.AttemptLog)
+	result.Retries = handlers.Retries(event)
 }
 
 // advance runs the handlers and applies the resulting transition. It returns
@@ -141,6 +158,16 @@ func (t *Transport) advance(
 			// Reset per-attempt state before the next attempt.
 			event.Response = nil
 			event.Error = nil
+
+			if decision.Delay > 0 {
+				// Пауза перед повтором (backoff / Retry-After), рассчитанная
+				// обработчиком ретраев: применяем её через StateWait, иначе
+				// повторы шли бы без задержки, а Waited всегда был бы нулём.
+				event.Set(contract.ContextWaitDelay, decision.Delay)
+				*state = contract.StateWait
+				return false, contract.ActionRetry
+			}
+
 			*state = contract.StateReady
 			return false, contract.ActionRetry
 		case contract.ActionWait:
