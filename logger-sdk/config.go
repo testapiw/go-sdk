@@ -80,6 +80,9 @@ type Config struct {
 	// По умолчанию 95.
 	CoinsThreshold int
 
+	// DebugUDPAddr — необязательный UDP-адрес приёмника отладочных событий.
+	DebugUDPAddr string
+
 	// DB — параметры подключения к ClickHouse для записи error/critical.
 	DB DBConfig
 
@@ -115,6 +118,7 @@ type TelegramConfig struct {
 //	LOG_LEVEL          — минимальный уровень для файла: debug|info (default info)
 //	LOG_DIR            — директория логов (default ./logs)
 //	LOG_FILE_PREFIX    — префикс имени файла (default app)
+//	LOG_UDP_ADDR       — UDP-приёмник отладки (например, 127.0.0.1:8126)
 //	LOG_COINS_THRESHOLD— минимальное количество реальных монет (default 95)
 //	LOG_DB_ENABLED     — запись error/critical в БД: true|false (default false)
 //	CLICKHOUSE_ADDR    — адрес ClickHouse (default 127.0.0.1:9000)
@@ -133,6 +137,7 @@ func ConfigFromEnv() Config {
 		Level:          ParseLevel(envOr("LOG_LEVEL", "info")),
 		LogDir:         envOr("LOG_DIR", "./logs"),
 		FilePrefix:     envOr("LOG_FILE_PREFIX", "app"),
+		DebugUDPAddr:   strings.TrimSpace(os.Getenv("LOG_UDP_ADDR")),
 		CoinsThreshold: envInt("LOG_COINS_THRESHOLD", 95),
 		DB: DBConfig{
 			Enabled:  envBool("LOG_DB_ENABLED", false),

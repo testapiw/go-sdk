@@ -24,12 +24,13 @@ import (
 //	l.Error("failed to connect", err)
 //	l.Critical("database down", map[string]any{"host": "..."}, true) // true — уведомить в Telegram
 type Logger struct {
-	cfg       Config
-	file      *fileWriter
-	db        *dbWriter
-	telegram  *telegramNotifier
-	mu        sync.Mutex
-	closed    bool
+	cfg      Config
+	file     *fileWriter
+	debugUDP debugWriter
+	db       *dbWriter
+	telegram *telegramNotifier
+	mu       sync.Mutex
+	closed   bool
 }
 
 // New создаёт логгер из конфигурации.
@@ -54,6 +55,14 @@ func New(cfg Config) (*Logger, error) {
 			l.db = dw
 		}
 	}
+	if debugBuild && cfg.Level == LevelDebug && cfg.DebugUDPAddr != "" {
+		writer, err := newDebugUDPWriter(cfg.DebugUDPAddr)
+		if err != nil {
+			fw.write(formatLine(LevelError, "logger: debug UDP init failed: "+err.Error(), "", time.Now()))
+		} else {
+			l.debugUDP = writer
+		}
+	}
 
 	// Уведомитель в Telegram (critical).
 	l.telegram = newTelegramNotifier(cfg.Telegram)
@@ -63,6 +72,9 @@ func New(cfg Config) (*Logger, error) {
 
 // Debug пишет отладочное сообщение в файл (если уровень debug включён).
 func (l *Logger) Debug(msg string, data ...any) {
+	if !debugBuild {
+		return
+	}
 	l.log(LevelDebug, msg, data...)
 }
 
@@ -156,7 +168,11 @@ func (l *Logger) log(level Level, msg string, data ...any) {
 
 	// info/debug — в файл, только если уровень включён.
 	if level >= l.cfg.Level && l.file != nil {
-		l.file.write(formatLine(level, msg, dataJSON, now))
+		line := formatLine(level, msg, dataJSON, now)
+		l.file.write(line)
+		if level == LevelDebug && l.debugUDP != nil {
+			l.debugUDP.write(now, msg, dataJSON)
+		}
 	}
 }
 
@@ -196,6 +212,11 @@ func (l *Logger) Close() error {
 	var firstErr error
 	if l.file != nil {
 		if err := l.file.close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if l.debugUDP != nil {
+		if err := l.debugUDP.close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
